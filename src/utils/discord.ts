@@ -1,5 +1,4 @@
-import { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, type MessageActionRowComponentBuilder, StringSelectMenuBuilder } from "discord.js";
-import { searchTimezones } from "./timezones.js";
+import { EmbedBuilder, ButtonBuilder, ButtonStyle, ActionRowBuilder, type MessageActionRowComponentBuilder, ModalBuilder, TextInputBuilder, TextInputStyle } from "discord.js";
 
 export function discordTimestamp(date: Date, style: string = "R"): string {
   return `<t:${Math.floor(date.getTime() / 1000)}:${style}>`;
@@ -106,14 +105,22 @@ export function createOnboardingButtons(): ActionRowBuilder<MessageActionRowComp
   );
 }
 
-export function createTimezoneSelectMenu(customId: string): ActionRowBuilder<MessageActionRowComponentBuilder> {
-  const popular = searchTimezones("").slice(0, 25);
-  return new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(customId)
-      .setPlaceholder("Select your timezone...")
-      .addOptions(popular.map((tz) => ({ label: tz, value: tz }))),
-  );
+export function createTimezoneModal(): ModalBuilder {
+  return new ModalBuilder()
+    .setCustomId("tzmodal:onboard")
+    .setTitle("Set your timezone")
+    .addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("tzinput")
+          .setLabel("IANA timezone (e.g. Asia/Ho_Chi_Minh, US/Eastern)")
+          .setStyle(TextInputStyle.Short)
+          .setPlaceholder("Asia/Ho_Chi_Minh")
+          .setMinLength(2)
+          .setMaxLength(50)
+          .setRequired(true),
+      ),
+    );
 }
 
 export function createPaginationButtons(page: number, totalPages: number): ActionRowBuilder<MessageActionRowComponentBuilder> {

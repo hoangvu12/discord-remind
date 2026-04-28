@@ -43,30 +43,12 @@ export const remind: SlashCommand = {
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+    const whenInput = interaction.options.getString("when", true);
+    const message = interaction.options.getString("message", true);
+
     const settings = await db.query.userSettings.findFirst({
       where: eq(userSettings.userId, interaction.user.id),
     });
-
-    if (!settings) {
-      const detected = timezoneFromLocale(interaction.locale);
-      onboardingSessions.set(interaction.user.id, {
-        userId: interaction.user.id,
-        detectedTimezone: detected,
-      });
-
-      const embed = createOnboardingEmbed(detected);
-      const row = createOnboardingButtons();
-
-      await interaction.editReply({
-        content: "/remind is waiting — set your timezone first:",
-        embeds: [embed],
-        components: [row],
-      });
-      return;
-    }
-
-    const whenInput = interaction.options.getString("when", true);
-    const message = interaction.options.getString("message", true);
 
     const parsed = await parseWhen(whenInput, interaction.user.id, interaction.locale);
 
@@ -79,6 +61,28 @@ export const remind: SlashCommand = {
           "Try one of these:",
           ...suggestions.map((s) => `- \`${s}\``),
         ].join("\n"),
+      });
+      return;
+    }
+
+    if (!settings) {
+      const detected = timezoneFromLocale(interaction.locale);
+      onboardingSessions.set(interaction.user.id, {
+        userId: interaction.user.id,
+        detectedTimezone: detected,
+        pendingReminder: {
+          whenInput,
+          message,
+          parsed,
+        },
+      });
+
+      const embed = createOnboardingEmbed(detected);
+      const row = createOnboardingButtons();
+
+      await interaction.editReply({
+        embeds: [embed],
+        components: [row],
       });
       return;
     }

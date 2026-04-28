@@ -24,6 +24,16 @@ export const paginatedLists = new Map<string, PaginatedListState>();
 export type OnboardingState = {
   userId: string;
   detectedTimezone: string;
+  pendingReminder?: {
+    whenInput: string;
+    message: string;
+    parsed: {
+      date: Date;
+      relative: string;
+      timezone: string;
+      autoDetected: boolean;
+    };
+  };
 };
 
 export const onboardingSessions = new Map<string, OnboardingState>();

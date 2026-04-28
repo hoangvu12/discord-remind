@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events, MessageFlags, StringSelectMenuInteraction } from "discord.js";
+import { Client, GatewayIntentBits, Events, MessageFlags } from "discord.js";
 import { config } from "./config.js";
 import "./db/index.js";
 import { getCommandData, handleCommand, handleAutocomplete } from "./commands/index.js";
@@ -6,8 +6,9 @@ import { pendingConfirmations, onboardingSessions, paginatedLists } from "./comm
 import { ReminderScheduler } from "./scheduler/scheduler.js";
 import { db } from "./db/index.js";
 import { reminders, userSettings } from "./db/schema.js";
-import { discordTimestamp, createTimezoneSelectMenu, createOnboardingEmbed, createOnboardingButtons, createPaginationButtons } from "./utils/discord.js";
+import { discordTimestamp, createOnboardingButtons, createPaginationButtons, createConfirmationEmbed, createConfirmButtons, createTimezoneModal } from "./utils/discord.js";
 import { buildPageEmbed } from "./commands/remind-list.js";
+import { generateReminderId } from "./utils/id.js";
 import { timezoneFromLocale } from "./utils/locale-tz.js";
 import { eq } from "drizzle-orm";
 
@@ -43,8 +44,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       await handleAutocomplete(interaction);
     } else if (interaction.isButton()) {
       await handleButton(interaction);
-    } else if (interaction.isStringSelectMenu()) {
-      await handleSelectMenu(interaction);
+    } else if (interaction.isModalSubmit()) {
+      await handleModalSubmit(interaction);
     }
   } catch (err) {
     console.error("Interaction error:", err);
@@ -69,30 +70,22 @@ async function handleButton(interaction: any) {
     }
 
     if (customId === "onboard:confirm") {
-      const now = new Date();
-      await db.insert(userSettings).values({
-        userId: interaction.user.id,
-        timezone: session.detectedTimezone,
-        createdAt: now,
-        updatedAt: now,
-      }).onConflictDoUpdate({
-        target: userSettings.userId,
-        set: { timezone: session.detectedTimezone, updatedAt: now },
-      });
-
+      const tz = session.detectedTimezone;
+      await saveUserTimezone(interaction.user.id, tz);
       onboardingSessions.delete(interaction.user.id);
-      await interaction.update({
-        content: `Timezone set to **${session.detectedTimezone}**! Now use \`/remind\` to set your first reminder.`,
-        embeds: [],
-        components: [],
-      });
+
+      if (session.pendingReminder) {
+        await showReminderConfirmation(interaction, session.pendingReminder, tz);
+      } else {
+        await interaction.update({
+          content: `Timezone set to **${tz}**! Now use \`/remind\` to set a reminder.`,
+          embeds: [],
+          components: [],
+        });
+      }
     } else if (customId === "onboard:change") {
-      const row = createTimezoneSelectMenu("tzselect:onboard");
-      await interaction.update({
-        content: "Pick your timezone:",
-        embeds: [],
-        components: [row],
-      });
+      const modal = createTimezoneModal();
+      await interaction.showModal(modal);
     }
 
   } else if (customId.startsWith("confirm:")) {
@@ -142,14 +135,8 @@ async function handleButton(interaction: any) {
     });
 
   } else if (customId.startsWith("cancel:")) {
-    const id = customId.slice(7);
-    pendingConfirmations.delete(id);
-
-    await interaction.update({
-      content: "Cancelled.",
-      embeds: [],
-      components: [],
-    });
+    pendingConfirmations.delete(customId.slice(7));
+    await interaction.update({ content: "Cancelled.", embeds: [], components: [] });
 
   } else if (customId.startsWith("snooze:")) {
     const [, reminderId, duration] = customId.split(":");
@@ -169,11 +156,7 @@ async function handleButton(interaction: any) {
     }
 
   } else if (customId.startsWith("dismiss:")) {
-    await interaction.update({
-      content: "Dismissed.",
-      embeds: [],
-      components: [],
-    });
+    await interaction.update({ content: "Dismissed.", embeds: [], components: [] });
 
   } else if (customId === "page:prev" || customId === "page:next") {
     const state = paginatedLists.get(interaction.user.id);
@@ -196,29 +179,94 @@ async function handleButton(interaction: any) {
   }
 }
 
-async function handleSelectMenu(interaction: StringSelectMenuInteraction) {
+async function handleModalSubmit(interaction: any) {
   const customId = interaction.customId;
 
-  if (customId === "tzselect:onboard") {
-    const selected = interaction.values[0];
-    const now = new Date();
+  if (customId === "tzmodal:onboard") {
+    const session = onboardingSessions.get(interaction.user.id);
+    if (!session) {
+      await interaction.update({ content: "Session expired. Use /remind to try again.", embeds: [], components: [] });
+      return;
+    }
 
-    await db.insert(userSettings).values({
-      userId: interaction.user.id,
-      timezone: selected,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: userSettings.userId,
-      set: { timezone: selected, updatedAt: now },
-    });
+    const tzInput = interaction.fields.getTextInputValue("tzinput");
 
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: tzInput });
+    } catch {
+      await interaction.reply({
+        content: `"${tzInput}" is not a valid IANA timezone. Try something like \`Asia/Ho_Chi_Minh\` or \`US/Eastern\`. Run \`/remind\` again to retry.`,
+        flags: MessageFlags.Ephemeral,
+      });
+      onboardingSessions.delete(interaction.user.id);
+      return;
+    }
+
+    await saveUserTimezone(interaction.user.id, tzInput);
     onboardingSessions.delete(interaction.user.id);
-    await interaction.update({
-      content: `Timezone set to **${selected}**! Now use \`/remind\` to set your first reminder.`,
-      embeds: [],
-      components: [],
+
+    if (session.pendingReminder) {
+      const reParsed = await import("./parser/parse-when.js").then((m) =>
+        m.parseWhen(session.pendingReminder!.whenInput, interaction.user.id, interaction.locale),
+      );
+      if (reParsed) {
+        await showReminderConfirmation(interaction, { ...session.pendingReminder, parsed: reParsed }, tzInput);
+        return;
+      }
+    }
+
+    await interaction.reply({
+      content: `Timezone set to **${tzInput}**! Now use \`/remind\` to set a reminder.`,
+      flags: MessageFlags.Ephemeral,
     });
+  }
+}
+
+async function saveUserTimezone(userId: string, timezone: string) {
+  const now = new Date();
+  await db.insert(userSettings).values({
+    userId,
+    timezone,
+    createdAt: now,
+    updatedAt: now,
+  }).onConflictDoUpdate({
+    target: userSettings.userId,
+    set: { timezone, updatedAt: now },
+  });
+}
+
+async function showReminderConfirmation(
+  interaction: any,
+  pending: { message: string; parsed: { date: Date; timezone: string; autoDetected: boolean } },
+  timezone: string,
+) {
+  const id = generateReminderId();
+  const now = new Date();
+
+  pendingConfirmations.set(id, {
+    userId: interaction.user.id,
+    message: pending.message,
+    triggerAt: pending.parsed.date,
+    channelId: interaction.channelId ?? null,
+    guildId: interaction.guildId ?? null,
+    createdAt: now,
+  });
+
+  setTimeout(() => pendingConfirmations.delete(id), 5 * 60_000);
+
+  const embed = createConfirmationEmbed(pending.message, pending.parsed.date, timezone);
+  const row = createConfirmButtons(id);
+
+  const replyData = {
+    content: `Timezone set to **${timezone}**! Here's your reminder:`,
+    embeds: [embed],
+    components: [row],
+  };
+
+  if (interaction.replied || interaction.deferred) {
+    await interaction.editReply(replyData);
+  } else {
+    await interaction.reply({ ...replyData, flags: MessageFlags.Ephemeral });
   }
 }
 
