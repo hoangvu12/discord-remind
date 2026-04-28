@@ -1,0 +1,38 @@
+const localeToTimezone: Record<string, string> = {
+  id: "Asia/Jakarta",
+  da: "Europe/Copenhagen",
+  de: "Europe/Berlin",
+  "en-GB": "Europe/London",
+  "en-US": "America/New_York",
+  "es-ES": "Europe/Madrid",
+  "es-419": "America/Mexico_City",
+  fr: "Europe/Paris",
+  hr: "Europe/Zagreb",
+  it: "Europe/Rome",
+  lt: "Europe/Vilnius",
+  hu: "Europe/Budapest",
+  nl: "Europe/Amsterdam",
+  no: "Europe/Oslo",
+  pl: "Europe/Warsaw",
+  "pt-BR": "America/Sao_Paulo",
+  ro: "Europe/Bucharest",
+  fi: "Europe/Helsinki",
+  "sv-SE": "Europe/Stockholm",
+  vi: "Asia/Ho_Chi_Minh",
+  tr: "Europe/Istanbul",
+  cs: "Europe/Prague",
+  el: "Europe/Athens",
+  bg: "Europe/Sofia",
+  ru: "Europe/Moscow",
+  uk: "Europe/Kyiv",
+  hi: "Asia/Kolkata",
+  th: "Asia/Bangkok",
+  "zh-CN": "Asia/Shanghai",
+  ja: "Asia/Tokyo",
+  "zh-TW": "Asia/Taipei",
+  ko: "Asia/Seoul",
+};
+
+export function timezoneFromLocale(locale: string): string {
+  return localeToTimezone[locale] ?? "UTC";
+}
