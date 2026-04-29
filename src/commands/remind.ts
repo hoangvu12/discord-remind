@@ -34,7 +34,7 @@ export const remind: SlashCommand = {
       InteractionContextType.PrivateChannel,
     )
     .addStringOption((o) =>
-      o.setName("when").setDescription("When to remind (e.g. 'tomorrow at 8pm', 'in 2 hours')").setRequired(true).setAutocomplete(true),
+      o.setName("when").setDescription("When to remind (e.g. 'tomorrow at 8pm', 'in 2 hours', 'every day at 7am')").setRequired(true).setAutocomplete(true),
     )
     .addStringOption((o) =>
       o.setName("message").setDescription("What to remind you about").setRequired(true),
@@ -89,6 +89,7 @@ export const remind: SlashCommand = {
 
     const id = generateReminderId();
     const now = new Date();
+    const rule = parsed.recurringRule ?? null;
 
     pendingConfirmations.set(id, {
       userId: interaction.user.id,
@@ -97,11 +98,12 @@ export const remind: SlashCommand = {
       channelId: interaction.channelId ?? null,
       guildId: interaction.guildId ?? null,
       createdAt: now,
+      recurringRule: rule,
     });
 
     setTimeout(() => pendingConfirmations.delete(id), 5 * 60_000);
 
-    const embed = createConfirmationEmbed(message, parsed.date, parsed.timezone);
+    const embed = createConfirmationEmbed(message, parsed.date, parsed.timezone, rule);
     if (parsed.autoDetected) {
       embed.addFields({
         name: "Timezone auto-detected",
@@ -130,6 +132,8 @@ export const remind: SlashCommand = {
         { name: "tonight at 8pm", value: "tonight at 8pm" },
         { name: "tomorrow at 9am", value: "tomorrow at 9am" },
         { name: "next Monday", value: "next Monday" },
+        { name: "every day at 7am", value: "every day at 7am" },
+        { name: "every Monday at 9am", value: "every Monday at 9am" },
       ]);
       return;
     }

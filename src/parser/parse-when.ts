@@ -11,6 +11,7 @@ export type ParsedWhen = {
   relative: string;
   timezone: string;
   autoDetected: boolean;
+  recurringRule?: string;
 };
 
 export async function parseWhen(
@@ -48,12 +49,74 @@ export async function parseWhen(
   const maxAhead = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
   if (absoluteDate > maxAhead) return null;
 
+  const recurringRule = buildRecurringRule(detectRecurrence(input), parsedDate);
+
   return {
     date: absoluteDate,
     relative: best.text,
     timezone,
     autoDetected,
+    recurringRule,
   };
+}
+
+function buildRecurringRule(
+  recurrence: ReturnType<typeof detectRecurrence>,
+  parsedDate: Date,
+): string | undefined {
+  if (!recurrence.type) return undefined;
+
+  const hour = parsedDate.getHours();
+  const minute = parsedDate.getMinutes();
+  const dow = recurrence.type === "day-of-week"
+    ? recurrence.dayOfWeek
+    : recurrence.type === "weekly"
+    ? parsedDate.getDay()
+    : undefined;
+
+  return `${minute} ${hour} * * ${dow ?? "*"}`;
+}
+
+function detectRecurrence(
+  input: string,
+): { type: "daily" | "weekly" | "day-of-week" | null; dayOfWeek?: number } {
+  const lower = input.toLowerCase();
+
+  const dayMatch = input.match(
+    /\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+  );
+  if (dayMatch) {
+    const dayMap: Record<string, number> = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+    };
+    return {
+      type: "day-of-week",
+      dayOfWeek: dayMap[dayMatch[1].toLowerCase()],
+    };
+  }
+
+  if (
+    /\bevery\s+day\b/.test(lower) ||
+    /\bdaily\b/.test(lower) ||
+    /\beveryday\b/.test(lower) ||
+    /\bevery\s+morning\b/.test(lower) ||
+    /\bevery\s+evening\b/.test(lower) ||
+    /\bevery\s+night\b/.test(lower)
+  ) {
+    return { type: "daily" };
+  }
+
+  if (/\bevery\s+week\b/.test(lower) || /\bweekly\b/.test(lower)) {
+    return { type: "weekly" };
+  }
+
+  return { type: null };
 }
 
 async function getUserTimezone(

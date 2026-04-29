@@ -23,21 +23,41 @@ export function createReminderEmbed(
     .setFooter({ text: `ID: ${id} · ${timezone}` });
 }
 
+function formatRecurringRule(rule: string): string {
+  const parts = rule.split(" ");
+  if (parts.length !== 5) return rule;
+  const dayOfWeek = Number(parts[4]);
+  if (isNaN(dayOfWeek)) return "Every day";
+  const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  return `Every ${days[dayOfWeek]}`;
+}
+
 export function createConfirmationEmbed(
   message: string,
   triggerAt: Date,
   timezone: string,
+  recurringRule?: string | null,
 ): EmbedBuilder {
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(0xfee75c)
-    .setTitle("Confirm Reminder")
+    .setTitle(recurringRule ? "Confirm Recurring Reminder" : "Confirm Reminder")
     .setDescription(message)
     .addFields(
       { name: "When", value: discordTimestamp(triggerAt, "R"), inline: true },
       { name: "Exact time", value: discordTimestamp(triggerAt, "F"), inline: true },
       { name: "Timezone", value: timezone, inline: true },
-    )
-    .setFooter({ text: "Times shown in your local timezone" });
+    );
+
+  if (recurringRule) {
+    embed.addFields({
+      name: "Repeats",
+      value: formatRecurringRule(recurringRule),
+      inline: false,
+    });
+  }
+
+  embed.setFooter({ text: "Times shown in your local timezone" });
+  return embed;
 }
 
 export function createSnoozeButtons(reminderId: string): ActionRowBuilder<MessageActionRowComponentBuilder> {
@@ -152,6 +172,8 @@ export function generateParseSuggestions(input: string): string[] {
     suggestions.push("next Monday", "next Friday at 9am", "next week");
   } else if (/in\s+\d/i.test(lower)) {
     suggestions.push("in 30 minutes", "in 2 hours", "in 3 days");
+  } else if (/every/i.test(lower)) {
+    suggestions.push("every day at 8am", "every Monday at 9am", "every week at 7pm");
   }
 
   if (suggestions.length === 0) {

@@ -1,3 +1,5 @@
+import type { ParsedWhen } from "../parser/parse-when.js";
+
 export type PendingConfirmation = {
   userId: string;
   message: string;
@@ -5,6 +7,7 @@ export type PendingConfirmation = {
   channelId: string | null;
   guildId: string | null;
   createdAt: Date;
+  recurringRule?: string | null;
 };
 
 export const pendingConfirmations = new Map<string, PendingConfirmation>();
@@ -27,12 +30,7 @@ export type OnboardingState = {
   pendingReminder?: {
     whenInput: string;
     message: string;
-    parsed: {
-      date: Date;
-      relative: string;
-      timezone: string;
-      autoDetected: boolean;
-    };
+    parsed: ParsedWhen;
   };
 };
 

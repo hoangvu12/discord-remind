@@ -49,8 +49,7 @@ export const remindCancel: SlashCommand = {
     }
 
     await db
-      .update(reminders)
-      .set({ status: "cancelled" })
+      .delete(reminders)
       .where(eq(reminders.id, id));
 
     scheduler.remove(id);

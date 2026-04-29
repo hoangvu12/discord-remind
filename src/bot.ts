@@ -3,6 +3,7 @@ import { config } from "./config.js";
 import "./db/index.js";
 import { getCommandData, handleCommand, handleAutocomplete } from "./commands/index.js";
 import { pendingConfirmations, onboardingSessions, paginatedLists } from "./commands/confirmations.js";
+import type { ParsedWhen } from "./parser/parse-when.js";
 import { ReminderScheduler } from "./scheduler/scheduler.js";
 import { db } from "./db/index.js";
 import { reminders, userSettings } from "./db/schema.js";
@@ -102,6 +103,7 @@ async function handleButton(interaction: any) {
     }
 
     pendingConfirmations.delete(id);
+    const rule = pending.recurringRule ?? null;
 
     await db.insert(reminders).values({
       id,
@@ -112,7 +114,7 @@ async function handleButton(interaction: any) {
       triggerAt: pending.triggerAt,
       createdAt: pending.createdAt,
       status: "pending",
-      recurringRule: null,
+      recurringRule: rule,
     });
 
     scheduler.add({
@@ -123,7 +125,7 @@ async function handleButton(interaction: any) {
       message: pending.message,
       triggerAt: pending.triggerAt,
       createdAt: pending.createdAt,
-      recurringRule: null,
+      recurringRule: rule,
       snoozeCount: 0,
       status: "pending",
     });
@@ -156,6 +158,9 @@ async function handleButton(interaction: any) {
     }
 
   } else if (customId.startsWith("dismiss:")) {
+    const reminderId = customId.slice(8);
+    await db.delete(reminders).where(eq(reminders.id, reminderId));
+    scheduler.remove(reminderId);
     await interaction.update({ content: "Dismissed.", embeds: [], components: [] });
 
   } else if (customId === "page:prev" || customId === "page:next") {
@@ -237,11 +242,12 @@ async function saveUserTimezone(userId: string, timezone: string) {
 
 async function showReminderConfirmation(
   interaction: any,
-  pending: { message: string; parsed: { date: Date; timezone: string; autoDetected: boolean } },
+  pending: { message: string; parsed: ParsedWhen },
   timezone: string,
 ) {
   const id = generateReminderId();
   const now = new Date();
+  const rule = pending.parsed.recurringRule ?? null;
 
   pendingConfirmations.set(id, {
     userId: interaction.user.id,
@@ -250,11 +256,12 @@ async function showReminderConfirmation(
     channelId: interaction.channelId ?? null,
     guildId: interaction.guildId ?? null,
     createdAt: now,
+    recurringRule: rule,
   });
 
   setTimeout(() => pendingConfirmations.delete(id), 5 * 60_000);
 
-  const embed = createConfirmationEmbed(pending.message, pending.parsed.date, timezone);
+  const embed = createConfirmationEmbed(pending.message, pending.parsed.date, timezone, rule);
   const row = createConfirmButtons(id);
 
   const replyData = {
