@@ -6,6 +6,7 @@ import {
   ButtonBuilder,
   ButtonStyle,
   ActionRowBuilder,
+  EmbedBuilder,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
 import type { SlashCommand } from "./index.js";
@@ -114,6 +115,51 @@ export const remind: SlashCommand = {
       return;
     }
 
+    if (parsed.dateRange && parsed.dateRange.length > 1) {
+      const dates = parsed.dateRange;
+      const maxDisplay = 7;
+      const dateList = dates
+        .slice(0, maxDisplay)
+        .map((d) => `- <t:${Math.floor(d.getTime() / 1000)}:F>`)
+        .join("\n");
+      const overflow = dates.length > maxDisplay
+        ? `\n...and ${dates.length - maxDisplay} more`
+        : "";
+
+      const id = generateReminderId();
+      const now = new Date();
+
+      pendingConfirmations.set(id, {
+        userId: interaction.user.id,
+        message,
+        triggerAt: parsed.date,
+        channelId: interaction.channelId ?? null,
+        guildId: interaction.guildId ?? null,
+        createdAt: now,
+        recurringRule: null,
+        dateRange: dates,
+      });
+
+      setTimeout(() => pendingConfirmations.delete(id), 5 * 60_000);
+
+      const embed = new EmbedBuilder()
+        .setColor(0xfee75c)
+        .setTitle(`Confirm Date Range Reminder (${dates.length} reminders)`)
+        .setDescription(message)
+        .addFields(
+          { name: "Dates", value: `${dateList}${overflow}`, inline: false },
+          { name: "Timezone", value: parsed.timezone, inline: true },
+        )
+        .setFooter({ text: "Times shown in your local timezone" });
+
+      const row = createConfirmButtons(id);
+      await interaction.editReply({
+        embeds: [embed],
+        components: [row],
+      });
+      return;
+    }
+
     if (!settings) {
       const detected = timezoneFromLocale(interaction.locale);
       onboardingSessions.set(interaction.user.id, {
@@ -183,6 +229,8 @@ export const remind: SlashCommand = {
         { name: "next Monday", value: "next Monday" },
         { name: "every day at 7am", value: "every day at 7am" },
         { name: "every Monday at 9am", value: "every Monday at 9am" },
+        { name: "every Monday to Friday at 9am", value: "every Monday to Friday at 9am" },
+        { name: "02/05 to 04/05 at 11am", value: "02/05 to 04/05 at 11am" },
       ]);
       return;
     }

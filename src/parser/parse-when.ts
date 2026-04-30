@@ -20,6 +20,7 @@ export type ParsedWhen = {
   autoDetected: boolean;
   recurringRule?: string;
   ambiguous?: AmbiguousDate;
+  dateRange?: Date[];
 };
 
 export async function parseWhen(
@@ -43,6 +44,9 @@ export async function parseWhen(
 
   const ambiguousCheck = checkAmbiguousDate(input, nowInTz, timezone);
   if (ambiguousCheck) return ambiguousCheck;
+
+  const dateRangeCheck = checkDateRange(input, nowInTz, timezone);
+  if (dateRangeCheck) return dateRangeCheck;
 
   const resolvedInput = resolveUnambiguousDate(input, nowInTz);
 
@@ -81,6 +85,12 @@ function buildRecurringRule(
 
   const hour = parsedDate.getHours();
   const minute = parsedDate.getMinutes();
+
+  if (recurrence.type === "day-of-week-range" && recurrence.dayOfWeekRange) {
+    const days = recurrence.dayOfWeekRange.sort((a, b) => a - b).join(",");
+    return `${minute} ${hour} * * ${days}`;
+  }
+
   const dow = recurrence.type === "day-of-week"
     ? recurrence.dayOfWeek
     : recurrence.type === "weekly"
@@ -90,28 +100,47 @@ function buildRecurringRule(
   return `${minute} ${hour} * * ${dow ?? "*"}`;
 }
 
+const DAY_MAP: Record<string, number> = {
+  sunday: 0, sun: 0,
+  monday: 1, mon: 1,
+  tuesday: 2, tue: 2, tues: 2,
+  wednesday: 3, wed: 3,
+  thursday: 4, thu: 4, thurs: 4,
+  friday: 5, fri: 5,
+  saturday: 6, sat: 6,
+};
+
 function detectRecurrence(
   input: string,
-): { type: "daily" | "weekly" | "day-of-week" | null; dayOfWeek?: number } {
+): { type: "daily" | "weekly" | "day-of-week" | "day-of-week-range" | null; dayOfWeek?: number; dayOfWeekRange?: number[] } {
   const lower = input.toLowerCase();
 
+  const rangeMatch = lower.match(
+    /\b(?:every\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thurs|fri|sat|sun)\s*(?:to|-)\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thurs|fri|sat|sun)\b/i,
+  );
+  if (rangeMatch) {
+    const start = DAY_MAP[rangeMatch[1].toLowerCase()];
+    const end = DAY_MAP[rangeMatch[2].toLowerCase()];
+    if (start !== undefined && end !== undefined) {
+      const days: number[] = [];
+      let d = start;
+      while (d !== end) {
+        days.push(d);
+        d = (d + 1) % 7;
+      }
+      days.push(end);
+      return { type: "day-of-week-range", dayOfWeekRange: days };
+    }
+  }
+
   const dayMatch = input.match(
-    /\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i,
+    /\bevery\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|tues|wed|thu|thurs|fri|sat|sun)\b/i,
   );
   if (dayMatch) {
-    const dayMap: Record<string, number> = {
-      sunday: 0,
-      monday: 1,
-      tuesday: 2,
-      wednesday: 3,
-      thursday: 4,
-      friday: 5,
-      saturday: 6,
-    };
-    return {
-      type: "day-of-week",
-      dayOfWeek: dayMap[dayMatch[1].toLowerCase()],
-    };
+    const dow = DAY_MAP[dayMatch[1].toLowerCase()];
+    if (dow !== undefined) {
+      return { type: "day-of-week", dayOfWeek: dow };
+    }
   }
 
   if (
@@ -209,6 +238,66 @@ function checkAmbiguousDate(
   }
 
   return null;
+}
+
+const DATE_RANGE_PATTERN = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\s*(?:to|-)\s*(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/;
+
+function checkDateRange(
+  input: string,
+  nowInTz: Date,
+  timezone: string,
+): ParsedWhen | null {
+  const match = input.match(DATE_RANGE_PATTERN);
+  if (!match) return null;
+
+  const d1 = Number(match[1]);
+  const m1 = Number(match[2]);
+  const y1 = match[3] ? Number(match[3]) : undefined;
+  const d2 = Number(match[4]);
+  const m2 = Number(match[5]);
+  const y2 = match[6] ? Number(match[6]) : undefined;
+
+  const year1 = y1 ?? nowInTz.getFullYear();
+  const year2 = y2 ?? year1;
+
+  const start = new Date(year1, m1 - 1, d1, nowInTz.getHours(), nowInTz.getMinutes());
+  const end = new Date(year2, m2 - 1, d2, nowInTz.getHours(), nowInTz.getMinutes());
+
+  if (!isValid(start) || !isValid(end)) return null;
+  if (end < start) return null;
+
+  const timeMatch = input.match(/(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
+  if (timeMatch) {
+    let hours = Number(timeMatch[1]);
+    const minutes = Number(timeMatch[2] || 0);
+    const ampm = timeMatch[3]?.toLowerCase();
+    if (ampm === "pm" && hours < 12) hours += 12;
+    if (ampm === "am" && hours === 12) hours = 0;
+    start.setHours(hours, minutes, 0, 0);
+    end.setHours(hours, minutes, 0, 0);
+  }
+
+  const dates: Date[] = [];
+  const current = new Date(start);
+  while (current <= end) {
+    if (current >= nowInTz) {
+      dates.push(new Date(current));
+    }
+    current.setDate(current.getDate() + 1);
+  }
+
+  if (dates.length === 0) return null;
+
+  const absoluteStart = fromZonedTime(dates[0], timezone);
+  const absoluteDates = dates.map((d) => fromZonedTime(d, timezone));
+
+  return {
+    date: absoluteStart,
+    relative: input,
+    timezone,
+    autoDetected: false,
+    dateRange: absoluteDates,
+  };
 }
 
 function resolveUnambiguousDate(input: string, nowInTz: Date): string {

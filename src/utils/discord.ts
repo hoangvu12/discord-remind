@@ -26,10 +26,26 @@ export function createReminderEmbed(
 function formatRecurringRule(rule: string): string {
   const parts = rule.split(" ");
   if (parts.length !== 5) return rule;
-  const dayOfWeek = Number(parts[4]);
-  if (isNaN(dayOfWeek)) return "Every day";
+  const dayOfWeek = parts[4];
   const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  return `Every ${days[dayOfWeek]}`;
+
+  if (dayOfWeek === "*") return "Every day";
+
+  const dayNums = dayOfWeek.split(",").map(Number).filter((n) => !isNaN(n));
+  if (dayNums.length === 0) return rule;
+
+  if (dayNums.length === 1) return `Every ${days[dayNums[0]]}`;
+
+  const dayNames = dayNums.map((n) => days[n]);
+  if (dayNums.length > 1) {
+    const isConsecutive = dayNums.every((n, i) => i === 0 || n === dayNums[i - 1] + 1);
+    if (isConsecutive && dayNums.length > 1) {
+      return `Every ${dayNames[0]} to ${dayNames[dayNames.length - 1]}`;
+    }
+    return `Every ${dayNames.join(", ")}`;
+  }
+
+  return rule;
 }
 
 export function createConfirmationEmbed(
@@ -173,7 +189,9 @@ export function generateParseSuggestions(input: string): string[] {
   } else if (/in\s+\d/i.test(lower)) {
     suggestions.push("in 30 minutes", "in 2 hours", "in 3 days");
   } else if (/every/i.test(lower)) {
-    suggestions.push("every day at 8am", "every Monday at 9am", "every week at 7pm");
+    suggestions.push("every day at 8am", "every Monday at 9am", "every week at 7pm", "every Monday to Friday at 9am");
+  } else if (/\d+\/\d+/.test(lower)) {
+    suggestions.push(`${lower} at 11am`, `${lower} to ${lower} at 9am`);
   }
 
   if (suggestions.length === 0) {

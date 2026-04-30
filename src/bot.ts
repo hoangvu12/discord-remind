@@ -104,6 +104,45 @@ async function handleButton(interaction: any) {
     }
 
     pendingConfirmations.delete(id);
+
+    if (pending.dateRange && pending.dateRange.length > 1) {
+      const now = new Date();
+      for (const date of pending.dateRange) {
+        const rangeId = generateReminderId();
+        await db.insert(reminders).values({
+          id: rangeId,
+          userId: pending.userId,
+          channelId: pending.channelId,
+          guildId: pending.guildId,
+          message: pending.message,
+          triggerAt: date,
+          createdAt: now,
+          status: "pending",
+          recurringRule: null,
+        });
+
+        scheduler.add({
+          id: rangeId,
+          userId: pending.userId,
+          channelId: pending.channelId,
+          guildId: pending.guildId,
+          message: pending.message,
+          triggerAt: date,
+          createdAt: now,
+          recurringRule: null,
+          snoozeCount: 0,
+          status: "pending",
+        });
+      }
+
+      await interaction.update({
+        content: `${pending.dateRange.length} reminders set! First one ${discordTimestamp(pending.dateRange[0], "R")}`,
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+
     const rule = pending.recurringRule ?? null;
 
     await db.insert(reminders).values({

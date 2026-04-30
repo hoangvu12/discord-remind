@@ -8,6 +8,7 @@ export type PendingConfirmation = {
   guildId: string | null;
   createdAt: Date;
   recurringRule?: string | null;
+  dateRange?: Date[];
 };
 
 export const pendingConfirmations = new Map<string, PendingConfirmation>();

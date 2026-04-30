@@ -213,7 +213,8 @@ export class ReminderScheduler {
     const [minuteStr, hourStr, , , dayOfWeekStr] = parts;
     const minute = Number(minuteStr);
     const hour = Number(hourStr);
-    const dayOfWeek = Number(dayOfWeekStr);
+
+    const dayOfWeekValues = dayOfWeekStr.split(",").map(Number).filter((n) => !isNaN(n));
 
     const next = new Date(from.getTime());
     next.setDate(next.getDate() + 1);
@@ -225,13 +226,15 @@ export class ReminderScheduler {
       next.setMinutes(minute, 0, 0);
     }
 
-    if (!isNaN(dayOfWeek)) {
-      const currentDay = next.getDay();
-      const targetDay = dayOfWeek % 7;
-      const daysAhead = (targetDay - currentDay + 7) % 7;
-      if (daysAhead > 0) {
-        next.setDate(next.getDate() + daysAhead);
+    if (dayOfWeekValues.length > 0) {
+      for (let i = 0; i < 7; i++) {
+        const candidate = new Date(next.getTime());
+        candidate.setDate(next.getDate() + i);
+        if (dayOfWeekValues.includes(candidate.getDay())) {
+          return candidate;
+        }
       }
+      return null;
     }
 
     return next;
