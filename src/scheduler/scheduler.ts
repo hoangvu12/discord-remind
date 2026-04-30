@@ -9,7 +9,6 @@ import {
 } from "../utils/discord.js";
 import { addMinutes, addHours, addDays } from "date-fns";
 import type { InferSelectModel } from "drizzle-orm";
-import type { reminders } from "../db/schema.js";
 
 function toReminderRow(row: InferSelectModel<typeof reminders>): ReminderRow {
   return {
@@ -207,6 +206,38 @@ export class ReminderScheduler {
   }
 
   private computeNextRecurrence(rule: string, from: Date): Date | null {
+    if (rule.startsWith("interval:")) {
+      const [, unit, amountStr] = rule.split(":");
+      const amount = Number(amountStr);
+      if (!amount || amount < 1) return null;
+
+      const next = new Date(from.getTime());
+      if (unit === "minute") next.setMinutes(next.getMinutes() + amount);
+      else if (unit === "hour") next.setHours(next.getHours() + amount);
+      else if (unit === "day") next.setDate(next.getDate() + amount);
+      else if (unit === "week") next.setDate(next.getDate() + amount * 7);
+      else return null;
+      next.setSeconds(0, 0);
+      return next;
+    }
+
+    if (rule.startsWith("monthly:")) {
+      const [, dayStr, hourStr, minuteStr, intervalStr] = rule.split(":");
+      const day = Number(dayStr);
+      const hour = Number(hourStr);
+      const minute = Number(minuteStr);
+      const interval = Number(intervalStr || 1);
+      if (!day || day < 1 || day > 31 || isNaN(hour) || isNaN(minute) || !interval) {
+        return null;
+      }
+
+      for (let i = interval; i <= interval + 12; i++) {
+        const next = new Date(from.getFullYear(), from.getMonth() + i, day, hour, minute, 0, 0);
+        if (next.getDate() === day && next > from) return next;
+      }
+      return null;
+    }
+
     const parts = rule.split(" ");
     if (parts.length !== 5) return null;
 

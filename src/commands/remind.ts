@@ -230,6 +230,10 @@ export const remind: SlashCommand = {
         { name: "every day at 7am", value: "every day at 7am" },
         { name: "every Monday at 9am", value: "every Monday at 9am" },
         { name: "every Monday to Friday at 9am", value: "every Monday to Friday at 9am" },
+        { name: "every weekday at 9am", value: "every weekday at 9am" },
+        { name: "every Mon, Wed, Fri at 7am", value: "every Mon, Wed, Fri at 7am" },
+        { name: "every 30 minutes", value: "every 30 minutes" },
+        { name: "every month on the 1st at 9am", value: "every month on the 1st at 9am" },
         { name: "02/05 to 04/05 at 11am", value: "02/05 to 04/05 at 11am" },
       ]);
       return;

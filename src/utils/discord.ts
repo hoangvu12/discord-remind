@@ -24,6 +24,18 @@ export function createReminderEmbed(
 }
 
 function formatRecurringRule(rule: string): string {
+  if (rule.startsWith("interval:")) {
+    const [, unit, amount] = rule.split(":");
+    const suffix = Number(amount) === 1 ? unit : `${unit}s`;
+    return `Every ${amount} ${suffix}`;
+  }
+
+  if (rule.startsWith("monthly:")) {
+    const [, day, , , interval] = rule.split(":");
+    const intervalText = Number(interval || 1) === 1 ? "month" : `${interval} months`;
+    return `Every ${intervalText} on day ${day}`;
+  }
+
   const parts = rule.split(" ");
   if (parts.length !== 5) return rule;
   const dayOfWeek = parts[4];
@@ -189,7 +201,12 @@ export function generateParseSuggestions(input: string): string[] {
   } else if (/in\s+\d/i.test(lower)) {
     suggestions.push("in 30 minutes", "in 2 hours", "in 3 days");
   } else if (/every/i.test(lower)) {
-    suggestions.push("every day at 8am", "every Monday at 9am", "every week at 7pm", "every Monday to Friday at 9am");
+    suggestions.push(
+      "every weekday at 9am",
+      "every Mon, Wed, Fri at 7am",
+      "every 30 minutes",
+      "every month on the 1st at 9am",
+    );
   } else if (/\d+\/\d+/.test(lower)) {
     suggestions.push(`${lower} at 11am`, `${lower} to ${lower} at 9am`);
   }
