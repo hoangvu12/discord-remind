@@ -1,10 +1,17 @@
 import * as chrono from "chrono-node/en";
 import { toZonedTime, fromZonedTime } from "date-fns-tz";
+import { isValid, parse } from "date-fns";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { userSettings } from "../db/schema.js";
 import { config } from "../config.js";
 import { timezoneFromLocale } from "../utils/locale-tz.js";
+
+export type AmbiguousDate = {
+  ddmmyyyy: Date;
+  mmddyyyy: Date;
+  original: string;
+};
 
 export type ParsedWhen = {
   date: Date;
@@ -12,6 +19,7 @@ export type ParsedWhen = {
   timezone: string;
   autoDetected: boolean;
   recurringRule?: string;
+  ambiguous?: AmbiguousDate;
 };
 
 export async function parseWhen(
@@ -33,7 +41,12 @@ export async function parseWhen(
   const now = new Date();
   const nowInTz = toZonedTime(now, timezone);
 
-  const results = chrono.parse(input, nowInTz, { forwardDate: true });
+  const ambiguousCheck = checkAmbiguousDate(input, nowInTz, timezone);
+  if (ambiguousCheck) return ambiguousCheck;
+
+  const resolvedInput = resolveUnambiguousDate(input, nowInTz);
+
+  const results = chrono.parse(resolvedInput, nowInTz, { forwardDate: true });
   if (results.length === 0) return null;
 
   const best = results.reduce((a, b) =>
@@ -117,6 +130,109 @@ function detectRecurrence(
   }
 
   return { type: null };
+}
+
+const DATE_SLASH_PATTERN = /(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/;
+
+function tryParseDate(
+  first: number,
+  second: number,
+  year: number | undefined,
+  nowInTz: Date,
+): Date | null {
+  const y = year ?? (first > 12 ? nowInTz.getFullYear() : nowInTz.getFullYear());
+  const d = new Date(y, second - 1, first, nowInTz.getHours(), nowInTz.getMinutes());
+  return isValid(d) ? d : null;
+}
+
+function checkAmbiguousDate(
+  input: string,
+  nowInTz: Date,
+  timezone: string,
+): ParsedWhen | null {
+  const match = input.match(DATE_SLASH_PATTERN);
+  if (!match) return null;
+
+  const a = Number(match[1]);
+  const b = Number(match[2]);
+  const yearNum = match[3] ? Number(match[3]) : undefined;
+
+  const ddmmyy = tryParseDate(a, b, yearNum, nowInTz);
+  const mmddyy = tryParseDate(b, a, yearNum, nowInTz);
+
+  if (!ddmmyy && !mmddyy) return null;
+
+  if (ddmmyy && !mmddyy) {
+    const absoluteDate = fromZonedTime(ddmmyy, timezone);
+    return {
+      date: absoluteDate,
+      relative: input,
+      timezone,
+      autoDetected: false,
+    };
+  }
+
+  if (mmddyy && !ddmmyy) {
+    const absoluteDate = fromZonedTime(mmddyy, timezone);
+    return {
+      date: absoluteDate,
+      relative: input,
+      timezone,
+      autoDetected: false,
+    };
+  }
+
+  if (ddmmyy && mmddyy) {
+    const absDdmmyy = fromZonedTime(ddmmyy!, timezone);
+    const absMmddyy = fromZonedTime(mmddyy!, timezone);
+
+    if (absDdmmyy.getTime() === absMmddyy.getTime()) {
+      return {
+        date: absDdmmyy,
+        relative: input,
+        timezone,
+        autoDetected: false,
+      };
+    }
+
+    return {
+      date: absDdmmyy,
+      relative: input,
+      timezone,
+      autoDetected: false,
+      ambiguous: {
+        ddmmyyyy: ddmmyy!,
+        mmddyyyy: mmddyy!,
+        original: input,
+      },
+    };
+  }
+
+  return null;
+}
+
+function resolveUnambiguousDate(input: string, nowInTz: Date): string {
+  const match = input.match(DATE_SLASH_PATTERN);
+  if (!match) return input;
+
+  const a = Number(match[1]);
+  const b = Number(match[2]);
+
+  if (a > 12 && b <= 12) {
+    const year = match[3] ? Number(match[3]) : nowInTz.getFullYear();
+    const date = new Date(year, b - 1, a, nowInTz.getHours(), nowInTz.getMinutes());
+    const monthNames = [
+      "January","February","March","April","May","June",
+      "July","August","September","October","November","December",
+    ];
+    const replaced = input.replace(
+      match[0],
+      `${monthNames[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`,
+    );
+    return replaced;
+  }
+
+  return input;
 }
 
 async function getUserTimezone(

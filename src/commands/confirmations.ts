@@ -35,3 +35,14 @@ export type OnboardingState = {
 };
 
 export const onboardingSessions = new Map<string, OnboardingState>();
+
+export type AmbiguousResolution = {
+  userId: string;
+  message: string;
+  whenInput: string;
+  timezone: string;
+  ddmmyyyy: Date;
+  mmddyyyy: Date;
+};
+
+export const ambiguousResolutions = new Map<string, AmbiguousResolution>();

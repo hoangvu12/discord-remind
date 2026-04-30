@@ -2,7 +2,7 @@ import { Client, GatewayIntentBits, Events, MessageFlags } from "discord.js";
 import { config } from "./config.js";
 import "./db/index.js";
 import { getCommandData, handleCommand, handleAutocomplete } from "./commands/index.js";
-import { pendingConfirmations, onboardingSessions, paginatedLists } from "./commands/confirmations.js";
+import { pendingConfirmations, onboardingSessions, paginatedLists, ambiguousResolutions } from "./commands/confirmations.js";
 import type { ParsedWhen } from "./parser/parse-when.js";
 import { ReminderScheduler } from "./scheduler/scheduler.js";
 import { db } from "./db/index.js";
@@ -12,6 +12,7 @@ import { buildPageEmbed } from "./commands/remind-list.js";
 import { generateReminderId } from "./utils/id.js";
 import { timezoneFromLocale } from "./utils/locale-tz.js";
 import { eq } from "drizzle-orm";
+import { fromZonedTime } from "date-fns-tz";
 
 const scheduler = new ReminderScheduler();
 
@@ -139,6 +140,53 @@ async function handleButton(interaction: any) {
   } else if (customId.startsWith("cancel:")) {
     pendingConfirmations.delete(customId.slice(7));
     await interaction.update({ content: "Cancelled.", embeds: [], components: [] });
+
+  } else if (customId.startsWith("ambresolve:")) {
+    const [, format, ambId] = customId.split(":");
+
+    if (format === "cancel") {
+      await interaction.update({ content: "Cancelled.", embeds: [], components: [] });
+      return;
+    }
+
+    const amb = ambiguousResolutions.get(ambId);
+    if (!amb || amb.userId !== interaction.user.id) {
+      await interaction.update({
+        content: "This selection has expired. Use /remind to try again.",
+        embeds: [],
+        components: [],
+      });
+      return;
+    }
+
+    ambiguousResolutions.delete(ambId);
+
+    const chosenDate = format === "ddmm" ? amb.ddmmyyyy : amb.mmddyyyy;
+    const absoluteDate = fromZonedTime(chosenDate, amb.timezone);
+
+    const id = generateReminderId();
+    const now = new Date();
+
+    pendingConfirmations.set(id, {
+      userId: interaction.user.id,
+      message: amb.message,
+      triggerAt: absoluteDate,
+      channelId: interaction.channelId ?? null,
+      guildId: interaction.guildId ?? null,
+      createdAt: now,
+      recurringRule: null,
+    });
+
+    setTimeout(() => pendingConfirmations.delete(id), 5 * 60_000);
+
+    const embed = createConfirmationEmbed(amb.message, absoluteDate, amb.timezone, null);
+    const row = createConfirmButtons(id);
+
+    await interaction.update({
+      content: `Got it — using **${format === "ddmm" ? "DD/MM" : "MM/DD"}** format.`,
+      embeds: [embed],
+      components: [row],
+    });
 
   } else if (customId.startsWith("snooze:")) {
     const [, reminderId, duration] = customId.split(":");

@@ -3,6 +3,10 @@ import {
   ApplicationIntegrationType,
   InteractionContextType,
   MessageFlags,
+  ButtonBuilder,
+  ButtonStyle,
+  ActionRowBuilder,
+  type MessageActionRowComponentBuilder,
 } from "discord.js";
 import type { SlashCommand } from "./index.js";
 import { parseWhen } from "../parser/parse-when.js";
@@ -14,8 +18,9 @@ import {
   createOnboardingButtons,
   generateParseSuggestions,
 } from "../utils/discord.js";
-import { pendingConfirmations, onboardingSessions } from "./confirmations.js";
+import { pendingConfirmations, onboardingSessions, ambiguousResolutions } from "./confirmations.js";
 import { timezoneFromLocale } from "../utils/locale-tz.js";
+import { fromZonedTime } from "date-fns-tz";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { userSettings } from "../db/schema.js";
@@ -61,6 +66,50 @@ export const remind: SlashCommand = {
           "Try one of these:",
           ...suggestions.map((s) => `- \`${s}\``),
         ].join("\n"),
+      });
+      return;
+    }
+
+    if (parsed.ambiguous) {
+      const amb = parsed.ambiguous;
+      const ambId = generateReminderId();
+      const ts1 = `<t:${Math.floor(fromZonedTime(amb.ddmmyyyy, parsed.timezone).getTime() / 1000)}:F>`;
+      const ts2 = `<t:${Math.floor(fromZonedTime(amb.mmddyyyy, parsed.timezone).getTime() / 1000)}:F>`;
+
+      ambiguousResolutions.set(ambId, {
+        userId: interaction.user.id,
+        message,
+        whenInput: whenInput,
+        timezone: parsed.timezone,
+        ddmmyyyy: amb.ddmmyyyy,
+        mmddyyyy: amb.mmddyyyy,
+      });
+      setTimeout(() => ambiguousResolutions.delete(ambId), 5 * 60_000);
+
+      const row = new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`ambresolve:ddmm:${ambId}`)
+          .setLabel("DD/MM")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`ambresolve:mmdd:${ambId}`)
+          .setLabel("MM/DD")
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId("ambresolve:cancel")
+          .setLabel("Cancel")
+          .setStyle(ButtonStyle.Danger),
+      );
+      await interaction.editReply({
+        content: [
+          `**"${amb.original}"** could mean two dates:`,
+          "",
+          `1. **DD/MM** → ${ts1}`,
+          `2. **MM/DD** → ${ts2}`,
+          "",
+          "Which one did you mean?",
+        ].join("\n"),
+        components: [row],
       });
       return;
     }
